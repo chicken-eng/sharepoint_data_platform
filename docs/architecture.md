@@ -26,24 +26,24 @@ The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-to
 ## 2. High-Level Architecture Diagram
 
 [ Microsoft SharePoint ] (Old & New Sites)
-│
-│ (1) Graph API / Azure AD OAuth2
-▼
+           │
+           │ (1) Graph API / Azure AD OAuth2
+           ▼
 [ Ingestion Engine (Python Container) ]
-│                         │
-│ (2) Raw File Dump       │ (3) File Metadata & Hash Register
-▼                         ▼
+      │                         │
+      │ (2) Raw File Dump       │ (3) File Metadata & Hash Register
+      ▼                         ▼
 [ MinIO Object Storage ]   [ PostgreSQL: metadata schema ]
-(Raw Lake / S3 API)        (files, folders, runs)
-│                         │
-└────────────┬────────────┘
-│
-│ (4) Local File Stream & Parse
-▼
-[ Transformation Engine ]
-│
-┌─────────────┼─────────────┐
-▼             ▼             ▼
+  (Raw Lake / S3 API)        (files, folders, runs)
+      │                         │
+      └────────────┬────────────┘
+                   │
+                   │ (4) Local File Stream & Parse
+                   ▼
+     [ Transformation Engine ]
+                   │
+     ┌─────────────┼─────────────┐
+     ▼             ▼             ▼
 [ bronze ]    [ silver ]    [ gold ]     [ audit ]
 Raw Tables   Cleaned DB    Search DB    Logs/Metrics
 
