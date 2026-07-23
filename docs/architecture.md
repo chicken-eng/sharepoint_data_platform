@@ -58,15 +58,15 @@ The database platform uses a 5-tier PostgreSQL schema layout coupled with an ext
 |                         MINIO OBJECT STORE                            |
 |  raw-sharepoint-lake / {site} / {year} / {client} / {project} / file  |
 +-----------------------------------------------------------------------+
-│
-▼
+                                   │
+                                   ▼
 +-----------------------------------------------------------------------+
 |                      POSTGRESQL DATABASE SCHEMAS                      |
 |                                                                       |
 |  1. METADATA : Track files, folders, hashes, versions, paths          |
 |  2. BRONZE   : Direct jsonb/tabular dump of raw worksheet contents    |
 |  3. SILVER   : Normalized, typed, deduplicated respondent entity data |
-|  4. GOLD     : Indexed search tables (optimized for email lookups)   |
+|  4. GOLD     : Indexed search tables (optimized for email lookups)    |
 |  5. AUDIT    : Execution logs, run durations, failure traces          |
 +-----------------------------------------------------------------------+
 
