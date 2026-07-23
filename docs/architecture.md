@@ -25,6 +25,7 @@ The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-to
 
 ## 2. High-Level Architecture Diagram
 
+```
 [ Microsoft SharePoint ] (Old & New Sites)
            │
            │ (1) Graph API / Azure AD OAuth2
@@ -46,13 +47,13 @@ The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-to
      ▼             ▼             ▼
 [ bronze ]    [ silver ]    [ gold ]     [ audit ]
 Raw Tables   Cleaned DB    Search DB    Logs/Metrics
-
+```
 ---
 
 ## 3. Storage & Schema Layering Architecture
 
 The database platform uses a 5-tier PostgreSQL schema layout coupled with an external Object Storage landing zone:
-
+```
 +-----------------------------------------------------------------------+
 |                         MINIO OBJECT STORE                            |
 |  raw-sharepoint-lake / {site} / {year} / {client} / {project} / file  |
@@ -68,7 +69,7 @@ The database platform uses a 5-tier PostgreSQL schema layout coupled with an ext
 |  4. GOLD     : Indexed search tables (optimized for email lookups)    |
 |  5. AUDIT    : Execution logs, run durations, failure traces          |
 +-----------------------------------------------------------------------+
-
+```
 ---
 
 ### Layer Responsibilities
