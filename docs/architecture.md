@@ -21,6 +21,7 @@ The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-to
 3. **Data Lineage & Auditability:** Ensure absolute traceabilty from any row in the operational relational layer back to its original file, folder path, sheet, and execution run ID.
 4. **Zero-Cost Enterprise Blueprint:** Standardize on open-source, containerized technologies (Docker, MinIO, PostgreSQL, Python) capable of running locally or on modest cloud virtual machines.
 
+---
 
 ## 2. High-Level Architecture Diagram
 
@@ -46,7 +47,7 @@ The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-to
 [ bronze ]    [ silver ]    [ gold ]     [ audit ]
 Raw Tables   Cleaned DB    Search DB    Logs/Metrics
 
-
+---
 
 ## 3. Storage & Schema Layering Architecture
 
@@ -68,6 +69,7 @@ The database platform uses a 5-tier PostgreSQL schema layout coupled with an ext
 |  5. AUDIT    : Execution logs, run durations, failure traces          |
 +-----------------------------------------------------------------------+
 
+---
 
 ### Layer Responsibilities
 
