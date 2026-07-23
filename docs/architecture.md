@@ -1,100 +1,120 @@
-# Business & Technical Requirements Specification
+# System Architecture Specification
 
 | Document Metadata | Value |
 | :--- | :--- |
 | **Project Name** | SharePoint Enterprise Data Platform (`sharepoint_data_platform`) |
-| **Author** | Lead Data Engineer / Database Administrator |
-| **Organization** | Field Scope International |
+| **Document Type** | Solution Architecture Specification |
+| **Author** | Lead Data Engineer / Solutions Architect |
 | **Version** | 1.0.0 |
 | **Status** | Approved |
 | **Last Updated** | July 2026 |
 
 ---
 
-## 1. Executive Summary & Business Problem
+## 1. Executive Summary & Architectural Vision
 
-Field Scope International specializes in market research recruitment. Since approximately 2016, critical operational data—including respondent details, project specifications, screeners, and quota tracking—has been stored in flat files across two distinct Microsoft SharePoint site environments:
+The **SharePoint Enterprise Data Platform** is designed as a decoupled, fault-tolerant ELT (Extract, Load, Transform) data engine. It bridges unstructured and semi-structured historical files stored across legacy Microsoft SharePoint environments into a centralized, highly indexable, and structured PostgreSQL database.
 
-*   **Legacy Environment ("Old Site"):** `Recruitment Department / Completed Projects /`
-*   **Current Environment ("New Site"):** `Projects / Past Projects /`
-
-### The Problem
-While active study records from 2022 onwards exist within a centralized PostgreSQL instance, pre-2022 historical records reside exclusively inside semi-structured and unstructured files (`.xlsx`, `.xls`, `.csv`, `.docx`) nested within deep year/type/client/project directory structures. 
-
-When historical lookups are required (most frequently by **email address**), team members must manually navigate SharePoint folders and open individual workbooks. This process is slow, non-scalable, susceptible to human error, and prevents organizational cross-project analytics.
+### Core Architectural Goals
+1. **Decoupled Storage and Compute:** Isolate network-heavy file fetching (SharePoint Graph API) from CPU/Memory-heavy parsing and transformation tasks.
+2. **Resilience & Rate-Limit Immunity:** Prevent Microsoft Graph API rate-limiting (`429 Too Many Requests`) from breaking pipeline execution by introducing an S3-compatible staging layer (MinIO).
+3. **Data Lineage & Auditability:** Ensure absolute traceabilty from any row in the operational relational layer back to its original file, folder path, sheet, and execution run ID.
+4. **Zero-Cost Enterprise Blueprint:** Standardize on open-source, containerized technologies (Docker, MinIO, PostgreSQL, Python) capable of running locally or on modest cloud virtual machines.
 
 ---
 
-## 2. Project Vision & Strategic Goals
+## 2. High-Level Architecture Diagram
 
-The objective of the **SharePoint Enterprise Data Platform** is to build an automated, fault-tolerant, and lineaged ingestion pipeline that transforms SharePoint file stores into a structured, queryable relational data asset in PostgreSQL.
+[ Microsoft SharePoint ] (Old & New Sites)
+│
+│ (1) Graph API / Azure AD OAuth2
+▼
+[ Ingestion Engine (Python Container) ]
+│                         │
+│ (2) Raw File Dump       │ (3) File Metadata & Hash Register
+▼                         ▼
+[ MinIO Object Storage ]   [ PostgreSQL: metadata schema ]
+(Raw Lake / S3 API)        (files, folders, runs)
+│                         │
+└────────────┬────────────┘
+│
+│ (4) Local File Stream & Parse
+▼
+[ Transformation Engine ]
+│
+┌─────────────┼─────────────┐
+▼             ▼             ▼
+[ bronze ]    [ silver ]    [ gold ]     [ audit ]
+Raw Tables   Cleaned DB    Search DB    Logs/Metrics
 
-### Core Objectives
-1. **Centralize Historical Intelligence:** Convert scattered spreadsheet rows and document metadata into relational records accessible via standardized SQL queries.
-2. **Preserve System of Record:** Treat SharePoint as the immutable upstream system of record without modifying or corrupting source files.
-3. **Establish End-to-End Lineage:** Ensure every extracted record in the database can be traced back to its specific SharePoint site, path, file, worksheet, and ingestion execution ID.
-4. **Enable Operations & Analytics:** Provide rapid operational search capability (sub-second respondent email lookup) and establish a foundation for downstream BI tools and machine learning.
-
----
-
-## 3. Scope Boundary
-
-### In-Scope
-* **Discovery & Crawling:** Automated traversal of SharePoint nested directory structures (`Year / Project Type / Client / Project`).
-* **Raw Staging (Bronze Landing):** Automated download and staging of raw source files into an open-source local Object Storage landing layer (MinIO).
-* **Parsing & Extraction:**
-  * Tabular extraction from Excel workbooks (`.xlsx`, `.xls`) across multiple sheets (e.g., `Sample`, `Export`, `Grids`).
-  * Tabular extraction from flat CSV files.
-  * Metadata and structured text extraction from Microsoft Word documents (`.docx`) in `Project Materials`.
-* **Data Lineage & Metadata Management:** Full recording of folder paths, file properties, worksheet inventories, and execution state in PostgreSQL `metadata` and `audit` schemas.
-* **Target Storage:** Structuring data into PostgreSQL layered schemas (`bronze`, `silver`, `gold`).
-* **Incremental Ingestion:** Delta-based ingestion to process only modified or newly created files based on cryptographic hash and modification timestamps.
-* **Containerization:** Full local deployment orchestration via Docker and Docker Compose.
-
-### Out-of-Scope (Phase 1 Initial Release)
-* Modifying, moving, or deleting original files within SharePoint.
-* Real-time event streaming (batch ingestion is sufficient for historical and operational demands).
-* Live multi-tenant web application UI creation (data will be exposed via PostgreSQL endpoints for SQL engines/BI).
 
 ---
 
-## 4. Functional Requirements (FR)
+## 3. Storage & Schema Layering Architecture
 
-| ID | Category | Description | Priority |
-| :--- | :--- | :--- | :--- |
-| **FR-01** | Discovery | The system MUST authenticate via Azure AD App Registration (Microsoft Graph API) and recursively discover all files in target SharePoint paths. | High |
-| **FR-02** | Metadata Tracking | The system MUST record document properties (File Name, Extension, File Size, Created Date, Last Modified Date, Author, Content Hash, and Path Hierarchy) prior to data extraction. | High |
-| **FR-03** | Staging | The system MUST write extracted raw files byte-for-byte to an S3-compatible Object Store (MinIO) acting as the raw landing zone. | High |
-| **FR-04** | Tabular Parsing | The system MUST extract data from Excel workbooks containing multiple sheets without failing when sheet names or schema layouts vary. | High |
-| **FR-05** | Schema Normalization | The system MUST map heterogeneous column header naming conventions across legacy spreadsheets into standardized database schema fields in the `silver` layer. | High |
-| **FR-06** | Operational Search | The system MUST index primary key search attributes (specifically respondent email addresses) to enable sub-second querying across historical project datasets. | High |
-| **FR-07** | Incremental Processing | The system MUST skip processing files whose content hash and last-modified timestamp match an already successfully ingested record in the audit registry. | Medium |
-| **FR-08** | Lineage Tracking | Every record inserted into `bronze`, `silver`, and `gold` layers MUST contain foreign key references to the source file metadata record and execution batch run ID. | High |
+The database platform uses a 5-tier PostgreSQL schema layout coupled with an external Object Storage landing zone:
+
++-----------------------------------------------------------------------+
+|                         MINIO OBJECT STORE                            |
+|  raw-sharepoint-lake / {site} / {year} / {client} / {project} / file  |
++-----------------------------------------------------------------------+
+│
+▼
++-----------------------------------------------------------------------+
+|                      POSTGRESQL DATABASE SCHEMAS                      |
+|                                                                       |
+|  1. METADATA : Track files, folders, hashes, versions, paths          |
+|  2. BRONZE   : Direct jsonb/tabular dump of raw worksheet contents    |
+|  3. SILVER   : Normalized, typed, deduplicated respondent entity data |
+|  4. GOLD     : Indexed search tables (optimized for email lookups)   |
+|  5. AUDIT    : Execution logs, run durations, failure traces          |
++-----------------------------------------------------------------------+
+
+
+### Layer Responsibilities
+
+| Layer | System | Format | Retention | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **Landing** | MinIO | Binary (`.xlsx`, `.csv`, `.docx`) | Permanent | Raw immutable source files downloaded from SharePoint. |
+| **`metadata`** | PostgreSQL | Relational | Permanent | Catalog of folder trees, file hashes, and delta detection logic. |
+| **`bronze`** | PostgreSQL | `JSONB` / Raw Tables | Ephemeral/Configurable | Raw extracted table rows prior to data cleaning or schema alignment. |
+| **`silver`** | PostgreSQL | Normalized Relational | Permanent | Cleaned, typed, deduplicated entities (Respondents, Projects, Clients). |
+| **`gold`** | PostgreSQL | Star Schema / Search Indexes | Permanent | Optimized for sub-second operational searches (e.g., email index) and BI. |
+| **`audit`** | PostgreSQL | Append-Only Logs | Permanent | Execution metrics, batch stats, error logs, and pipeline health checks. |
 
 ---
 
-## 5. Non-Functional Requirements (NFR)
+## 4. Pipeline Execution Lifecycle
 
-### NFR-01: Idempotency & Repeatability
-Running the pipeline multiple times over the exact same source data set MUST produce identical database states without creating duplicate records or throwing constraint violations.
+The ingestion and transformation process operates through four deterministic phases:
 
-### NFR-02: Resilience & Throttling Mitigation
-The Microsoft Graph API integration MUST handle rate-limiting (`HTTP 429 Too Many Requests`) gracefully using exponential backoff and randomized jitter algorithms.
+### Phase A: Discovery & Staging (Extract & Load)
+1. **Traverse:** Python worker authenticates with Azure AD and queries the Microsoft Graph API to traverse target SharePoint site folders.
+2. **De-duplicate:** Calculate file content signatures (`SHA-256`) and compare against `metadata.files`. If hash and `last_modified` match, skip file.
+3. **Stage:** Download new/modified files byte-for-byte directly into the MinIO `raw-sharepoint-lake` bucket.
+4. **Register:** Record file properties (Path, Author, Size, Hash, Parent Folder ID) into `metadata.files`.
 
-### NFR-03: Performance & Resource Efficiency
-Spreadsheet parsing MUST utilize streaming or memory-efficient readers (e.g., `openpyxl` read-only mode or `polars`/`pyarrow`) to ensure processing large workbooks does not trigger Out-Of-Memory (OOM) errors on containerized hosts.
+### Phase B: Tabular Parsing (Bronze Load)
+1. Stream file contents from MinIO into Python using memory-efficient libraries (`openpyxl` read-only mode for Excel, `polars`/`pyarrow` for CSV).
+2. For Excel workbooks, iterate across worksheets (`Sample`, `Export`, `Grids`, etc.) and register sheet names into `metadata.worksheets`.
+3. Read raw tabular rows and write them as unstructured JSONB objects or raw string columns directly into `bronze.raw_spreadsheet_rows`.
 
-### NFR-04: Security & Compliance
-* All credentials, API client secrets, and database passwords MUST be injected via environment variables and NEVER hardcoded in source repositories.
-* Personally Identifiable Information (PII)—specifically emails and contact details—must be stored in dedicated PostgreSQL schemas with restricted access control policies.
+### Phase C: Normalization & Cleaning (Silver Load)
+1. Read untyped records from `bronze`.
+2. Apply header standardization rules (e.g., mapping `Emial`, `Email Address`, `E-mail` -> `email`).
+3. Cast data types (Dates, Booleans, Phone Numbers), clean strings, and enforce standard formats.
+4. Insert structured records into `silver.respondents`, `silver.projects`, and `silver.clients`.
 
-### NFR-05: Observability & Auditability
-Every pipeline run MUST produce structured operational logs (JSON format) detailing started tasks, success counts, failed records, execution durations, and error stack traces recorded in the `audit` schema.
+### Phase D: Indexing & Operational Serving (Gold Load)
+1. Upsert cleaned records into `gold.respondent_search_index`.
+2. Maintain inverted indexes and B-tree indexes on `email`, `phone_number`, and `project_code` for operational lookups.
 
 ---
 
-## 6. Architectural Constraints & Assumptions
+## 5. Security & Isolation Model
 
-1. **Zero Financial Cost:** All software components, databases, object stores, and orchestration utilities MUST utilize free, open-source tools (Python, PostgreSQL, MinIO, Docker).
-2. **Access Rights:** The pipeline operates using an App-Only authentication model via Microsoft Azure AD with granted Graph API permissions (`Sites.Read.All` / `Files.Read.All`).
-3. **Data Volume:** Total historical archive volume is estimated under 100 GB, making distributed compute clusters (e.g., Apache Spark) unnecessary; single-node Python containerized execution is sufficient.
+* **Secrets Management:** No passwords, tokens, or client secrets reside in code or configuration files. Secrets are injected at container startup via a `.env` file (ignored by `.gitignore`).
+* **Graph API Access:** Utilizes Application-Permissions (`Sites.Read.All`, `Files.Read.All`) using OAuth 2.0 Client Credentials flow.
+* **Database Access Control:** 
+  * `app_pipeline` user: Full privileges on `bronze`, `silver`, `gold`, `metadata`, `audit`.
+  * `app_read_only` user: Restricted read access exclusively to `gold` and `silver` schemas.
